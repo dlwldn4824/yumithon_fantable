@@ -2,7 +2,8 @@
 
 > **해외 팬이 공연·생카 날, 한국 계정 없이 '그 시간에 열린' 맛집을 찾고 예약하고, 가게 안에서 팬끼리 만나게 한다.**
 
-YUMITHON · How to Make AI More Tasty? — heyyumi × HideMePlease Euljiro (2026.10.17)
+YUMITHON · How to Make AI More Tasty? — heyyumi × HideMePlease Euljiro (2026.10.17)  
+**🏆 2등 / 21팀** · [소식](https://lnkd.in/p/gTSHP_bY)
 팀원: 이지우 · 헤이유미 REST API 위에서 동작
 
 ---
