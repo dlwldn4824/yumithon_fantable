@@ -4,7 +4,7 @@
 
 **글로벌 팬덤을 한국의 로컬 카페 · 맛집 · 이벤트 공간으로 연결하는 서비스**
 
-🏆 **YUMITHON 2등 / 21팀** · 유미톤 13팀 · heyyumi × HideMePlease Euljiro (2026.10.17)
+🏆 **YUMITHON 2위 / 21팀** · 유미톤 13팀 · heyyumi × HideMePlease Euljiro (2026.10.17)
 
 [▶ 데모 영상](https://youtube.com/shorts/aEpT-_qr-Ek?si=rhDVCaBZyZXyXf6Z) · [📄 발표 자료 (PDF)](docs/YUMITHON_13팀_최종발표.pdf) · [수상 소식](https://lnkd.in/p/gTSHP_bY)
 
