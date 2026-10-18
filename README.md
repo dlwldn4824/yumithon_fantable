@@ -120,14 +120,22 @@ npm run dev
 | `HEYYUMI_API_KEY` | 헤이유미 REST API 키 (필수) |
 | `HEYYUMI_SANDBOX` | `1` = 샌드박스(사장님께 알림 안 감, 기본값), `0` = 실제 요청 |
 | `ANTHROPIC_API_KEY` | 선택. 버디 대화·번역. 없으면 규칙 기반으로 동작 |
-| `SESSION_SECRET` | 세션 서명 키. 없으면 `.data/session-secret`에 자동 생성 |
+| `SESSION_SECRET` | 세션 서명 키. 로컬은 없으면 `.data/session-secret`에 자동 생성, **Vercel에서는 필수** |
+| `DATABASE_URL` | Postgres(Neon) 연결 주소. 있으면 Postgres, 없으면 로컬 SQLite |
 | `OWNER_INVITES` | 사장님 초대 코드 `코드:매장ID` (쉼표로 여러 개) |
 | `NEWS_IMAGES` | `0`이면 뉴스 기사 대표 이미지를 쓰지 않음 (출시 시 권장) |
 | `KAKAO_REST_API_KEY` · `KAKAO_CLIENT_SECRET` | 선택. 카카오 로그인 (Redirect URI: `<주소>/api/auth/kakao/callback`) |
 
+## Vercel 배포
+
+1. vercel.com → Add New → Project → 이 레포 가져오기 (Framework: Next.js, 설정 그대로)
+2. Storage → Neon Postgres 연결 → `DATABASE_URL`이 자동으로 들어감. 첫 요청 때 테이블과 예시 데이터(생카 이벤트·데모 로그)를 만든다
+3. Settings → Environment Variables: `HEYYUMI_API_KEY`, `HEYYUMI_SANDBOX=1`, `SESSION_SECRET`(긴 임의 문자열), 필요하면 `OWNER_INVITES`, `KAKAO_REST_API_KEY`
+4. Deploy. 이후 `main`에 푸시하면 자동 재배포
+
 ## 데이터
 
-- `.data/app.db` — SQLite (Node 내장 `node:sqlite`). 테이블: users, demand, logs, log_likes, events, presence, trades, offers, reports, blocks, meets, meet_members.
+- 배포: Neon Postgres (`DATABASE_URL`). 로컬: `.data/app.db` SQLite (Node 내장 `node:sqlite`). 같은 SQL을 `lib/sql.ts`의 `q.all / q.get / q.run`으로 쓴다. 테이블: users, demand, logs, log_likes, events, presence, trades, offers, reports, blocks, meets, meet_members.
 - 예약의 이름·전화번호·이메일은 서버에 저장하지 않고 헤이유미로만 전달한다. 밥팟 방장의 예약 연락처만 자동 예약 요청 때까지 보관했다가 요청 즉시 지운다. 내 예약 목록은 기기(localStorage)에만 있다.
 - 매장 입장 기록은 2시간, 교환 글은 24시간 뒤 자동 삭제. 계정 삭제 시 그 계정의 모든 데이터가 지워진다.
 
@@ -141,7 +149,7 @@ npm run dev
 
 ## 출시 전 남은 일
 
-- Postgres로 이전(서버리스 배포 시 SQLite 파일은 유지되지 않음), 구글·애플 로그인 (카카오 로그인은 적용됨)
+- 구글·애플 로그인 (카카오 로그인·Postgres 배포는 적용됨)
 - 매장 태그 토큰을 헤이유미 태그 페이지에서 발급받도록 연동
 - 알림(예약 확정·교환 제안), X·네이버 공식 검색 API로 생카 수집
 - 개인정보 처리방침·이용약관(`/privacy`, `/terms`) 법률 검토, 운영자 신고 검토 화면

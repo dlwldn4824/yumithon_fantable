@@ -15,7 +15,7 @@ export async function GET(req: Request) {
   if (!state || state !== q.get("state") || !q.get("code")) return go(`/me?kakao_error=state`);
   try {
     const p = await kakaoProfile(q.get("code")!, redirectUri(req));
-    const existing = kakaoUserId(p.id);
+    const existing = await kakaoUserId(p.id);
     if (existing) { await startSession(existing); return go(next); }
     await setKakaoPending(p);
     return go(`/me?kakao=finish&next=${encodeURIComponent(next)}`);

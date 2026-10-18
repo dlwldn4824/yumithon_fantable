@@ -13,5 +13,5 @@ export async function POST(req: Request) {
   if (!allow(`report:${u.id}`, 20, 3600)) return tooMany();
   const p = Body.safeParse(await req.json().catch(() => ({})));
   if (!p.success) return NextResponse.json({ error: "invalid_input" }, { status: 400 });
-  return NextResponse.json({ ok: report(p.data.type, p.data.id, u.id, p.data.reason) });
+  return NextResponse.json({ ok: await report(p.data.type, p.data.id, u.id, p.data.reason) });
 }

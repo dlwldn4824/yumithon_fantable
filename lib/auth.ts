@@ -4,16 +4,17 @@ import fs from "node:fs";
 import path from "node:path";
 import { createHmac, randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
 import { cookies } from "next/headers";
-import { db, now, uid } from "./sql";
+import { q, now, uid } from "./sql";
 
 const COOKIE = "ft_session";
 const SESSION_DAYS = 14;
 
 export type User = { id: string; email: string; nickname: string; role: "fan" | "owner"; place_id: string | null; age_ok: number };
 
-/** Signing secret: SESSION_SECRET if set, else one generated once and kept in .data/. */
+/** Signing secret: SESSION_SECRET if set (required on Vercel), else one generated once and kept in .data/. */
 function secret() {
   if (process.env.SESSION_SECRET) return process.env.SESSION_SECRET;
+  if (process.env.VERCEL) throw new Error("SESSION_SECRET is not set");
   const file = path.join(process.cwd(), ".data", "session-secret");
   try { return fs.readFileSync(file, "utf8"); } catch {}
   const s = randomBytes(32).toString("hex");
@@ -40,7 +41,7 @@ export async function currentUser(): Promise<User | null> {
   if (!raw) return null;
   const [id, exp, mac] = raw.split(".");
   if (!id || !exp || !mac || !safeEq(sign(`${id}.${exp}`), mac) || Number(exp) < Date.now()) return null;
-  return (db().prepare("select id, email, nickname, role, place_id, age_ok from users where id = ?").get(id) as User | undefined) ?? null;
+  return (await q.get<User>("select id, email, nickname, role, place_id, age_ok from users where id = ?", id)) ?? null;
 }
 
 export async function startSession(id: string) {
@@ -62,7 +63,7 @@ export async function signup(input: { email: string; password: string; nickname:
   if (!input.consent) throw new AuthError("consent_required");
   if (!input.ageOk) throw new AuthError("age_required");
   const email = input.email.trim().toLowerCase();
-  if (db().prepare("select 1 from users where email = ?").get(email)) throw new AuthError("email_taken", 409);
+  if (await q.get("select 1 x from users where email = ?", email)) throw new AuthError("email_taken", 409);
   let role: "fan" | "owner" = "fan";
   let placeId: string | null = null;
   if (input.ownerCode) {
@@ -74,35 +75,34 @@ export async function signup(input: { email: string; password: string; nickname:
     placeId = hit[1] ?? input.placeId ?? null;
   }
   const id = uid();
-  db().prepare("insert into users (id, email, nickname, pw_hash, role, place_id, age_ok, consent_at, created_at) values (?,?,?,?,?,?,?,?,?)")
-    .run(id, email, input.nickname.trim(), hash(input.password), role, placeId, 1, now(), now());
+  await q.run("insert into users (id, email, nickname, pw_hash, role, place_id, age_ok, consent_at, created_at) values (?,?,?,?,?,?,?,?,?)",
+    id, email, input.nickname.trim(), hash(input.password), role, placeId, 1, now(), now());
   await startSession(id);
   return id;
 }
 
 export async function login(email: string, password: string) {
-  const row = db().prepare("select id, pw_hash from users where email = ?").get(email.trim().toLowerCase()) as { id: string; pw_hash: string } | undefined;
+  const row = await q.get<{ id: string; pw_hash: string }>("select id, pw_hash from users where email = ?", email.trim().toLowerCase());
   if (!row || !verify(password, row.pw_hash)) throw new AuthError("bad_credentials", 401);
   await startSession(row.id);
   return row.id;
 }
 
 /** Delete the account and everything tied to it (logs, likes, trades, offers, presence, reports, blocks). */
-export function deleteAccount(id: string) {
-  const d = db();
+export async function deleteAccount(id: string) {
   for (const sql of [
     "delete from log_likes where user_id = ?", "delete from logs where user_id = ?", "delete from offers where user_id = ?",
     "delete from trades where user_id = ?", "delete from presence where user_id = ?", "delete from reports where user_id = ?",
     "delete from blocks where user_id = ? or blocked_id = ?", "delete from demand where user_key = ?", "delete from users where id = ?",
-  ]) d.prepare(sql).run(...(sql.includes(" or ") ? [id, id] : [id]));
+  ]) await q.run(sql, ...(sql.includes(" or ") ? [id, id] : [id]));
 }
 
 // ---------- Kakao Login ----------
 const PENDING = "ft_kakao";
 export type KakaoProfile = { id: string; nickname: string; email: string | null };
 
-export const kakaoUserId = (kakaoId: string) =>
-  (db().prepare("select id from users where kakao_id = ?").get(kakaoId) as { id: string } | undefined)?.id ?? null;
+export const kakaoUserId = async (kakaoId: string) =>
+  (await q.get<{ id: string }>("select id from users where kakao_id = ?", kakaoId))?.id ?? null;
 
 /** A first-time Kakao user still has to confirm age and terms; their profile waits in a signed 10-minute cookie. */
 export async function setKakaoPending(p: KakaoProfile) {
@@ -123,13 +123,13 @@ export async function signupKakao(input: { nickname: string; ageOk: boolean; con
   if (!p) throw new AuthError("kakao_expired", 401);
   if (!input.consent) throw new AuthError("consent_required");
   if (!input.ageOk) throw new AuthError("age_required");
-  const existing = kakaoUserId(p.id);
+  const existing = await kakaoUserId(p.id);
   if (existing) { await startSession(existing); return existing; }
   // Kakao may not share an email; a placeholder keeps the column unique without contacting anyone.
-  const email = p.email && !db().prepare("select 1 from users where email = ?").get(p.email.toLowerCase()) ? p.email.toLowerCase() : `kakao-${p.id}@users.fantable.invalid`;
+  const email = p.email && !(await q.get("select 1 x from users where email = ?", p.email.toLowerCase())) ? p.email.toLowerCase() : `kakao-${p.id}@users.fantable.invalid`;
   const id = uid();
-  db().prepare("insert into users (id, email, nickname, pw_hash, role, place_id, age_ok, consent_at, created_at, kakao_id) values (?,?,?,?,?,?,?,?,?,?)")
-    .run(id, email, input.nickname.trim(), "!kakao", "fan", null, 1, now(), now(), p.id);
+  await q.run("insert into users (id, email, nickname, pw_hash, role, place_id, age_ok, consent_at, created_at, kakao_id) values (?,?,?,?,?,?,?,?,?,?)",
+    id, email, input.nickname.trim(), "!kakao", "fan", null, 1, now(), now(), p.id);
   (await cookies()).delete(PENDING);
   await startSession(id);
   return id;

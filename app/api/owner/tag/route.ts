@@ -7,5 +7,5 @@ import { roomPeople } from "@/lib/db";
 export async function GET() {
   const u = await currentUser();
   if (!u || u.role !== "owner" || !u.place_id) return NextResponse.json({ error: "owner_only" }, { status: 403 });
-  return NextResponse.json({ placeId: u.place_id, token: currentTagToken(u.place_id), ttl: tagTokenTtlSec(), here: roomPeople(u.place_id).length });
+  return NextResponse.json({ placeId: u.place_id, token: currentTagToken(u.place_id), ttl: tagTokenTtlSec(), here: (await roomPeople(u.place_id)).length });
 }

@@ -6,7 +6,7 @@ import { detectSubject } from "@/lib/agent";
 import { allow, blockedReason, needLogin, tooMany } from "@/lib/guard";
 
 export async function GET() {
-  return NextResponse.json({ events: listEvents() });
+  return NextResponse.json({ events: await listEvents() });
 }
 
 // Register a fan event (e.g. a birthday cafe) from an X post a signed-in fan pasted.
@@ -21,7 +21,7 @@ export async function POST(req: Request) {
   if (!post) return NextResponse.json({ error: "x_post_unreadable" }, { status: 422 });
   if (blockedReason(post.text) === "abuse") return NextResponse.json({ error: "blocked_content" }, { status: 422 });
   const place = post.venue ? await matchVenue(post.venue) : null;
-  const event = addEvent(u.id, {
+  const event = await addEvent(u.id, {
     idol: detectSubject(post.text), venue: post.venue, dates: post.dates, xUrl: link, author: post.author, text: post.text.slice(0, 500),
     placeId: place?.id ?? null, place: place?.name ?? null, yumiReservable: !!place?.yumiReservable,
     lat: place?.location.lat ?? null, lng: place?.location.lng ?? null, road: place?.address?.road ?? null,

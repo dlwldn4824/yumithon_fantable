@@ -15,8 +15,8 @@ export async function GET(_req: Request, { params }: Ctx) {
   const u = await currentUser();
   let place: { name?: string; address?: { road?: string } } | null = null;
   try { place = (await get(`/places/${placeId}`, { fields: "core" })).data; } catch {}
-  const here = !!u && isHere(placeId, u.id);
-  return NextResponse.json({ place, me: u?.id ?? null, signedIn: !!u, here, people: roomPeople(placeId), trades: here && u ? roomTrades(placeId, u.id) : [] });
+  const here = !!u && await isHere(placeId, u.id);
+  return NextResponse.json({ place, me: u?.id ?? null, signedIn: !!u, here, people: await roomPeople(placeId), trades: here && u ? await roomTrades(placeId, u.id) : [] });
 }
 
 export async function POST(req: Request, { params }: Ctx) {
@@ -28,10 +28,10 @@ export async function POST(req: Request, { params }: Ctx) {
 
   if (b.action === "join") {
     if (!validTagToken(placeId, b.token)) return NextResponse.json({ error: "tag_expired" }, { status: 403 });
-    joinRoom(placeId, u.id, u.nickname, z.enum(["ko", "en", "ja", "zh"]).catch("ko").parse(b.lang));
+    await joinRoom(placeId, u.id, u.nickname, z.enum(["ko", "en", "ja", "zh"]).catch("ko").parse(b.lang));
     return NextResponse.json({ ok: true });
   }
-  if (!isHere(placeId, u.id)) return NextResponse.json({ error: "tap_the_tag_first" }, { status: 403 });
+  if (!await isHere(placeId, u.id)) return NextResponse.json({ error: "tap_the_tag_first" }, { status: 403 });
 
   if (b.action === "post") {
     const p = z.object({ have: Item, want: Item, note: z.string().trim().max(80).default("") }).safeParse(b);
@@ -39,17 +39,17 @@ export async function POST(req: Request, { params }: Ctx) {
     // Trades happen in person in the store: block money talk, contact details and outside links.
     const why = blockedReason(`${p.data.have} ${p.data.want} ${p.data.note}`, { money: true });
     if (why) return NextResponse.json({ error: "blocked_content", reason: why }, { status: 422 });
-    const id = postTrade(placeId, u.id, u.nickname, p.data.have, p.data.want, p.data.note);
+    const id = await postTrade(placeId, u.id, u.nickname, p.data.have, p.data.want, p.data.note);
     return id ? NextResponse.json({ id }) : NextResponse.json({ error: "too_many_open_trades" }, { status: 429 });
   }
   if (b.action === "offer") {
     const give = Item.safeParse(b.give);
     if (!give.success || blockedReason(give.data, { money: true })) return NextResponse.json({ error: "invalid_input" }, { status: 400 });
-    return NextResponse.json({ ok: offerTrade(String(b.tradeId), u.id, u.nickname, give.data) });
+    return NextResponse.json({ ok: await offerTrade(String(b.tradeId), u.id, u.nickname, give.data) });
   }
-  if (b.action === "accept") return NextResponse.json({ ok: acceptOffer(String(b.tradeId), u.id, String(b.offerId)) });
-  if (b.action === "done") return NextResponse.json({ ok: finishTrade(String(b.tradeId), u.id) });
-  if (b.action === "block") { block(u.id, String(b.target)); return NextResponse.json({ ok: true }); }
-  if (b.action === "report") return NextResponse.json({ ok: report("trade", String(b.tradeId), u.id, String(b.reason ?? "other")) });
+  if (b.action === "accept") return NextResponse.json({ ok: await acceptOffer(String(b.tradeId), u.id, String(b.offerId)) });
+  if (b.action === "done") return NextResponse.json({ ok: await finishTrade(String(b.tradeId), u.id) });
+  if (b.action === "block") { await block(u.id, String(b.target)); return NextResponse.json({ ok: true }); }
+  if (b.action === "report") return NextResponse.json({ ok: await report("trade", String(b.tradeId), u.id, String(b.reason ?? "other")) });
   return NextResponse.json({ error: "unknown action" }, { status: 400 });
 }

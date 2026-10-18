@@ -24,7 +24,7 @@ export async function POST(req: Request) {
     if (b.action === "logout") { await endSession(); return NextResponse.json({ ok: true }); }
     if (b.action === "delete") {
       const u = await currentUser();
-      if (u) { deleteAccount(u.id); await endSession(); }
+      if (u) { await deleteAccount(u.id); await endSession(); }
       return NextResponse.json({ ok: true });
     }
     // Brute-force guard: 10 sign-in/sign-up attempts per 10 minutes per client.

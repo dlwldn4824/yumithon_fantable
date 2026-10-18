@@ -111,6 +111,7 @@ export async function runSearch(parsed: ParsedQuery) {
     const localized = await localize([...lines, ...labels], parsed.lang);
     const translated = localized !== null && localized.some((t, i) => t !== [...lines, ...labels][i]);
     const labelMap = Object.fromEntries(labels.map((l, i) => [l, localized[lines.length + i]]));
+    const fans = await Promise.all(spots.map((p) => demandFor(p.id)));
 
     return {
       parsed,
@@ -127,7 +128,7 @@ export async function runSearch(parsed: ParsedQuery) {
         storyIsShow: SHOWS.has(assoc[i]?.subject ?? star),
         storyDate: assoc[i]?.eventDate ?? null,
         source: (assoc[i]?.sourceUrls ?? [])[0] ?? null,
-        fansTried: demandFor(p.id),
+        fansTried: fans[i],
         alternatives: alternatives[i].map((a) => ({ ...a, image: altPhotos.get(a.id) ?? null, categoryLabel: labelMap[a.categoryLabel ?? ""] ?? a.categoryLabel })),
       })),
     };

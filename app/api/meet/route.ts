@@ -35,7 +35,7 @@ const view = (m: Meet, me?: string | null) => ({
 
 /** Sends the party's reservation to HeyYumi; the owner accepts it in the 유미 사장님 app. */
 async function book(m: Meet) {
-  const contact = claimMeetBooking(m.id);
+  const contact = await claimMeetBooking(m.id);
   if (!contact) return;
   try {
     const res = await post("/reservations", {
@@ -43,9 +43,9 @@ async function book(m: Meet) {
       guestName: contact.name, guestPhone: contact.phone, guestEmail: contact.email || undefined,
       note: `Fan Table 밥팟 · ${m.members.length}명 · ${m.anchorName} 공연·생카 손님 (해외 팬 포함)`, idempotencyKey: `meet-${m.id}`,
     });
-    meetRequested(m.id, res.data.reservationId);
+    await meetRequested(m.id, res.data.reservationId);
   } catch (e) {
-    meetBookingFailed(m.id, (e as YumiError).message ?? "error");
+    await meetBookingFailed(m.id, (e as YumiError).message ?? "error");
   }
 }
 
@@ -54,10 +54,10 @@ async function refresh(m: Meet) {
   if (m.status !== "requested" || !m.reservationId) return m;
   try {
     const r = (await get(`/reservations/${m.reservationId}`, {}, false)).data;
-    if (r.status === "confirmed") setMeetStatus(m.id, "booked");
-    else if (["cancelled", "expired", "no_show"].includes(r.status)) setMeetStatus(m.id, "failed", r.status);
+    if (r.status === "confirmed") await setMeetStatus(m.id, "booked");
+    else if (["cancelled", "expired", "no_show"].includes(r.status)) await setMeetStatus(m.id, "failed", r.status);
   } catch {}
-  return getMeet(m.id) ?? m;
+  return (await getMeet(m.id)) ?? m;
 }
 
 export async function GET(req: Request) {
@@ -65,12 +65,12 @@ export async function GET(req: Request) {
   const q = new URL(req.url).searchParams;
   const id = q.get("id");
   if (id) {
-    const m = getMeet(id);
+    const m = await getMeet(id);
     return m ? NextResponse.json({ meet: view(await refresh(m), u?.id), signedIn: !!u }) : NextResponse.json({ error: "not_found" }, { status: 404 });
   }
   const anchor = q.get("anchor"), date = q.get("date");
   if (!anchor || !date) return NextResponse.json({ meets: [] });
-  return NextResponse.json({ meets: listMeets(anchor, date).map((m) => view(m, u?.id)) });
+  return NextResponse.json({ meets: (await listMeets(anchor, date)).map((m) => view(m, u?.id)) });
 }
 
 export async function POST(req: Request) {
@@ -88,25 +88,25 @@ export async function POST(req: Request) {
     // The intro is public: no contact details, links or money talk.
     const why = blockedReason(p.data.intro, { money: true });
     if (why) return NextResponse.json({ error: "blocked_content", reason: why }, { status: 422 });
-    const id = createMeet(u, lang, { ...p.data, contact: { ...p.data.contact, email: p.data.contact.email || undefined } });
+    const id = await createMeet(u, lang, { ...p.data, contact: { ...p.data.contact, email: p.data.contact.email || undefined } });
     return id ? NextResponse.json({ id }) : NextResponse.json({ error: "too_many_meets" }, { status: 429 });
   }
   const id = String(b.id ?? "");
   if (b.action === "join") {
-    const r = joinMeet(id, u, lang);
+    const r = await joinMeet(id, u, lang);
     if (r !== "ok") return NextResponse.json({ error: r === "full" ? "meet_full" : "meet_closed" }, { status: 409 });
-    const m = getMeet(id)!;
-    if (m.members.length >= m.goal) await book(m);
+    const m = await getMeet(id);
+    if (m && m.members.length >= m.goal) await book(m);
     return NextResponse.json({ ok: true });
   }
   if (b.action === "book_now") {
     // The host may book early with whoever has joined so far.
-    const m = getMeet(id);
+    const m = await getMeet(id);
     if (!m || m.hostId !== u.id || m.members.length < 2) return NextResponse.json({ error: "invalid_input" }, { status: 400 });
     await book(m);
     return NextResponse.json({ ok: true });
   }
-  if (b.action === "leave") { leaveMeet(id, u.id); return NextResponse.json({ ok: true }); }
-  if (b.action === "report") return NextResponse.json({ ok: report("meet", id, u.id, String(b.reason ?? "other")) });
+  if (b.action === "leave") { await leaveMeet(id, u.id); return NextResponse.json({ ok: true }); }
+  if (b.action === "report") return NextResponse.json({ ok: await report("meet", id, u.id, String(b.reason ?? "other")) });
   return NextResponse.json({ error: "unknown action" }, { status: 400 });
 }

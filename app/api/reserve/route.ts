@@ -33,7 +33,7 @@ export async function POST(req: Request) {
   } catch (e) {
     const err = e as YumiError;
     const notPartner = err.status === 422 && JSON.stringify(err.body ?? "").includes("not_available");
-    const fansTried = notPartner ? recordDemand({ id: b.placeId, name: b.placeName }, b.lang, u.id) : undefined;
+    const fansTried = notPartner ? await recordDemand({ id: b.placeId, name: b.placeName }, b.lang, u.id) : undefined;
     return NextResponse.json({ error: err.message, body: err.body, notPartner, fansTried }, { status: err.status ?? 500 });
   }
 }

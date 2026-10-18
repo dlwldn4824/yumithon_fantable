@@ -1,18 +1,23 @@
-// SQLite store (Node's built-in driver). One file under .data/, schema created on first use.
-// Tables mirror what a Postgres deployment would hold, so moving later is a driver swap.
+// Storage: Postgres (Neon) when DATABASE_URL is set — the Vercel deployment — otherwise a local
+// SQLite file under .data/ for development. Both speak the same SQL through q.all / q.get / q.run,
+// written with `?` placeholders (rewritten to $1, $2… for Postgres).
 import fs from "node:fs";
 import path from "node:path";
-import { DatabaseSync } from "node:sqlite";
+import seed from "./seed.json";
+
+export type Row = Record<string, unknown>;
+type Driver = { all(sql: string, p: unknown[]): Promise<Row[]>; run(sql: string, p: unknown[]): Promise<number> };
 
 const DIR = path.join(process.cwd(), ".data");
-const g = globalThis as unknown as { __sql?: DatabaseSync; __sqlSchema?: string };
+const g = globalThis as unknown as { __driver?: Promise<Driver>; __driverSchema?: string };
 
 const SCHEMA = `
 create table if not exists users (
   id text primary key, email text unique not null, nickname text not null, pw_hash text not null,
   role text not null default 'fan', place_id text, age_ok integer not null default 0,
-  consent_at text not null, created_at text not null
+  consent_at text not null, created_at text not null, kakao_id text
 );
+create unique index if not exists users_kakao on users(kakao_id) where kakao_id is not null;
 create table if not exists demand (
   place_id text not null, place_name text not null, user_key text not null, lang text not null, at text not null,
   primary key (place_id, user_key)
@@ -58,56 +63,76 @@ create table if not exists meet_members (
   nick text not null, lang text not null, at text not null, primary key (meet_id, user_id)
 );
 `;
+const statements = () => SCHEMA.split(";").map((s) => s.trim()).filter(Boolean);
 
-export function db() {
-  if (g.__sql) {
-    // Dev hot reload keeps the connection; apply tables added since it was opened.
-    if (g.__sqlSchema !== SCHEMA) { g.__sql.exec(SCHEMA); migrate(g.__sql); g.__sqlSchema = SCHEMA; }
-    return g.__sql;
-  }
-  fs.mkdirSync(DIR, { recursive: true });
-  const d = new DatabaseSync(path.join(DIR, "app.db"));
-  d.exec("pragma journal_mode = wal; pragma foreign_keys = on;");
-  d.exec(SCHEMA);
-  migrate(d);
-  g.__sql = d;
-  g.__sqlSchema = SCHEMA;
-  importLegacyJson(d);
+async function postgres(url: string): Promise<Driver> {
+  const { neon } = await import("@neondatabase/serverless");
+  const sql = neon(url, { fullResults: true });
+  const pg = (text: string) => { let i = 0; return text.replace(/\?/g, () => `$${++i}`); };
+  const d: Driver = {
+    all: async (text, p) => (await sql.query(pg(text), p)).rows as Row[],
+    run: async (text, p) => (await sql.query(pg(text), p)).rowCount ?? 0,
+  };
+  for (const s of statements()) await d.run(s, []);
   return d;
 }
 
-/** Columns added after a table was first created (SQLite has no "add column if not exists"). */
-function migrate(d: DatabaseSync) {
-  const cols = (t: string) => new Set((d.prepare(`pragma table_info(${t})`).all() as { name: string }[]).map((c) => c.name));
-  const users = cols("users");
-  if (!users.has("kakao_id")) d.exec("alter table users add column kakao_id text");
-  d.exec("create unique index if not exists users_kakao on users(kakao_id) where kakao_id is not null");
+async function sqlite(): Promise<Driver> {
+  const { DatabaseSync } = await import("node:sqlite");
+  fs.mkdirSync(DIR, { recursive: true });
+  const db = new DatabaseSync(path.join(DIR, "app.db"));
+  db.exec("pragma journal_mode = wal; pragma foreign_keys = on;");
+  // Columns added after a local table was first created (SQLite has no "add column if not exists").
+  const cols = (t: string) => new Set((db.prepare(`pragma table_info(${t})`).all() as { name: string }[]).map((c) => c.name));
+  for (const s of statements()) {
+    try { db.exec(s); } catch { /* an index on a column the old table lacks; added below */ }
+  }
+  if (!cols("users").has("kakao_id")) db.exec("alter table users add column kakao_id text");
+  db.exec("create unique index if not exists users_kakao on users(kakao_id) where kakao_id is not null");
   const meets = cols("meets");
   for (const [c, def] of [["goal", "integer not null default 2"], ["intro", "text not null default ''"], ["contact_json", "text"], ["res_error", "text"]])
-    if (!meets.has(c)) d.exec(`alter table meets add column ${c} ${def}`);
+    if (!meets.has(c)) db.exec(`alter table meets add column ${c} ${def}`);
+  type P = (string | number | null)[];
+  return {
+    all: async (text, p) => db.prepare(text).all(...(p as P)) as Row[],
+    run: async (text, p) => Number(db.prepare(text).run(...(p as P)).changes),
+  };
 }
+
+/** Example events and labeled demo logs, loaded once into an empty database. */
+async function seedIfEmpty(d: Driver) {
+  const n = Number((await d.all("select count(*) c from events", []))[0]?.c ?? 0) + Number((await d.all("select count(*) c from logs", []))[0]?.c ?? 0);
+  if (n > 0) return;
+  for (const e of seed.events as Row[])
+    await d.run(`insert into events (id, kind, idol, venue, place_id, place, yumi_reservable, lat, lng, road, dates, x_url, author, text, at)
+      values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) on conflict do nothing`,
+      [e.id, e.kind, e.idol, e.venue, e.place_id, e.place, e.yumi_reservable, e.lat, e.lng, e.road, e.dates, e.x_url, e.author, e.text, e.at]);
+  for (const l of seed.logs as Row[])
+    await d.run(`insert into logs (id, place, place_id, image, note, subject, lang, nickname, at, demo) values (?,?,?,?,?,?,?,?,?,?) on conflict do nothing`,
+      [l.id, l.place, l.place_id, l.image, l.note, l.subject, l.lang, l.nickname, l.at, l.demo]);
+}
+
+function driver() {
+  // Dev hot reload keeps the connection; a schema change since then opens a fresh one.
+  if (!g.__driver || g.__driverSchema !== SCHEMA) {
+    g.__driverSchema = SCHEMA;
+    g.__driver = (async () => {
+      const d = process.env.DATABASE_URL ? await postgres(process.env.DATABASE_URL) : await sqlite();
+      await seedIfEmpty(d);
+      return d;
+    })().catch((e) => { g.__driver = undefined; throw e; });
+  }
+  return g.__driver;
+}
+
+export const q = {
+  all: async <T = Row>(sql: string, ...p: unknown[]) => (await (await driver()).all(sql, p)) as T[],
+  get: async <T = Row>(sql: string, ...p: unknown[]) => ((await (await driver()).all(sql, p))[0] as T | undefined),
+  /** Returns the number of rows changed. */
+  run: async (sql: string, ...p: unknown[]) => (await driver()).run(sql, p),
+};
+/** count(*) comes back as a string from Postgres and a number from SQLite. */
+export const num = (v: unknown) => Number(v ?? 0);
 
 export const now = () => new Date().toISOString();
 export const uid = () => crypto.randomUUID();
-
-/** One-time import of the demo data that lived in .data/db.json before the SQLite store. */
-function importLegacyJson(d: DatabaseSync) {
-  const file = path.join(DIR, "db.json");
-  if (!fs.existsSync(file)) return;
-  const count = (d.prepare("select count(*) c from events").get() as { c: number }).c + (d.prepare("select count(*) c from logs").get() as { c: number }).c;
-  if (count > 0) return;
-  try {
-    const j = JSON.parse(fs.readFileSync(file, "utf8"));
-    const ev = d.prepare(`insert or ignore into events (id, kind, idol, venue, place_id, place, yumi_reservable, lat, lng, road, dates, x_url, author, text, at)
-      values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`);
-    for (const e of j.events ?? [])
-      ev.run(e.id, e.kind ?? "event", e.idol ?? null, e.venue ?? null, e.placeId ?? null, e.place ?? null, e.yumiReservable ? 1 : 0,
-        e.lat ?? null, e.lng ?? null, e.road ?? null, JSON.stringify(e.dates ?? []), e.xUrl, e.author ?? "", e.text ?? "", e.at);
-    const lg = d.prepare(`insert or ignore into logs (id, place, place_id, image, note, subject, lang, nickname, at, demo) values (?,?,?,?,?,?,?,?,?,?)`);
-    for (const l of j.logs ?? [])
-      lg.run(l.id, l.place, l.placeId ?? null, l.image ?? null, l.note ?? "", l.subject ?? null, l.lang ?? "ko", l.nickname ?? "Fan", l.at, l.demo ? 1 : 0);
-    fs.renameSync(file, file + ".imported");
-  } catch {
-    // Leave the JSON in place if it can't be read; the app starts empty.
-  }
-}

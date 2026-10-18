@@ -15,7 +15,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     const p = res.data;
     const menu: string[] = (p.menu ?? []).slice(0, 8).map((m: any) => `${m.name}${won(m.price)}`);
     const [summary, ...menuLocal] = await localize([p.aiSummary ?? p.ownerIntro ?? "", ...menu], lang);
-    return NextResponse.json({ place: p, summary, menu: menuLocal, fansTried: demandFor(id) });
+    return NextResponse.json({ place: p, summary, menu: menuLocal, fansTried: await demandFor(id) });
   } catch (e) {
     return NextResponse.json({ error: (e as Error).message }, { status: e instanceof YumiError ? e.status : 500 });
   }
