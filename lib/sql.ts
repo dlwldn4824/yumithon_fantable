@@ -112,14 +112,24 @@ async function seedIfEmpty(d: Driver) {
       [l.id, l.place, l.place_id, l.image, l.note, l.subject, l.lang, l.nickname, l.at, l.demo]);
 }
 
+/** Postgres URL: DATABASE_URL, or whatever name/prefix Vercel's Neon connection used (POSTGRES_URL, STORAGE_DATABASE_URL…). */
+export function databaseUrl() {
+  const e = process.env;
+  if (e.DATABASE_URL) return e.DATABASE_URL;
+  if (e.POSTGRES_URL) return e.POSTGRES_URL;
+  const k = Object.keys(e).find((n) => /(_DATABASE_URL|_POSTGRES_URL)$/.test(n) && /^postgres(ql)?:\/\//.test(e[n] ?? ""));
+  return k ? e[k] : undefined;
+}
+
 function driver() {
   // Dev hot reload keeps the connection; a schema change since then opens a fresh one.
   if (!g.__driver || g.__driverSchema !== SCHEMA) {
     g.__driverSchema = SCHEMA;
     g.__driver = (async () => {
       // Serverless hosts have no writable disk for the SQLite file: require Postgres there.
-      if (!process.env.DATABASE_URL && process.env.VERCEL) throw new Error("DATABASE_URL is not set (connect Neon Postgres in Vercel Storage)");
-      const d = process.env.DATABASE_URL ? await postgres(process.env.DATABASE_URL) : await sqlite();
+      const url = databaseUrl();
+      if (!url && process.env.VERCEL) throw new Error("DATABASE_URL is not set (connect Neon Postgres in Vercel Storage)");
+      const d = url ? await postgres(url) : await sqlite();
       await seedIfEmpty(d);
       return d;
     })().catch((e) => { g.__driver = undefined; throw e; });
