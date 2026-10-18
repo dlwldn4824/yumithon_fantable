@@ -8,7 +8,7 @@ export const sandbox = process.env.HEYYUMI_SANDBOX !== "0";
 
 function headers(json = false): Record<string, string> {
   const key = process.env.HEYYUMI_API_KEY;
-  if (!key) throw new YumiError(500, "HEYYUMI_API_KEY가 .env.local에 없어요");
+  if (!key) throw new YumiError(500, "HEYYUMI_API_KEY가 설정되지 않았어요 (로컬: .env.local, Vercel: Environment Variables)");
   const h: Record<string, string> = { Authorization: `Bearer ${key}` };
   if (json) h["Content-Type"] = "application/json";
   if (sandbox) h["X-Map3-Sandbox"] = "1";

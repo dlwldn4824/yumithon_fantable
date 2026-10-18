@@ -86,7 +86,7 @@ export default function Home() {
       try { localStorage.setItem(key, "1"); } catch {}
       fetch("/api/owner", { method: "POST", body: JSON.stringify({ id: r.place.id, name: r.place.name, lang }) })
         .then((x) => x.json())
-        .then(({ fansTried }) => setData((d) => d && { ...d, results: d.results.map((x) => (x.place.id === r.place.id ? { ...x, fansTried } : x)) }));
+        .then(({ fansTried }) => setData((d) => (d?.results ? { ...d, results: d.results.map((x) => (x.place.id === r.place.id ? { ...x, fansTried } : x)) } : d)));
     }
     const alt = r.alternatives[0];
     if (alt) setBooking(alt);
@@ -134,7 +134,7 @@ export default function Home() {
     return () => window.removeEventListener("resize", fit);
   });
 
-  const who = data?.parsed.celebrity ? subjectName(data.parsed.celebrity, lang) : "";
+  const who = data?.parsed?.celebrity ? subjectName(data.parsed.celebrity, lang) : "";
   const story = (r: Result) =>
     r.story ?? t(r.storyIsShow ? "featured" : "visited", { who: subjectName(r.storySubject, lang) }) + (r.storyDate ? ` (${r.storyDate.slice(0, 7)})` : "");
 
@@ -207,7 +207,7 @@ export default function Home() {
         <section className="sec">
           <h2>{who ? `${who} · ` : ""}{t("secFamous")} <span className="muted">{data?.stats ? t("famousStats", { n: data.stats.spots, b: data.stats.bookable }) : t("secFamousSub")}</span></h2>
           <div className="hscroll">
-            {data?.results.map((r) => (
+            {data?.results?.map((r) => (
               <article id={`card-${r.place.id}`} key={r.place.id} className={`tile ${active === r.place.id ? "tile-on" : ""}`} onClick={() => setActive(r.place.id)}>
                 <div className="tile-img">
                   {r.image
@@ -267,7 +267,7 @@ export default function Home() {
       <DragSheet open={aroundOpen && !!data?.results} startY={dragFrom} onClose={() => { setAroundOpen(false); setDragFrom(null); }}>
             <h2>{t("aroundTitle")} <span className="muted small">{pins.length}</span></h2>
             <div className="list" style={{ padding: 0, marginTop: 12 }}>
-              {data?.results.map((r) => (
+              {data?.results?.map((r) => (
                 <div className="row-item" key={`f-${r.place.id}`}>
                   <span className="thumb">{r.image ? <img className="photo" src={r.image} alt="" referrerPolicy="no-referrer" /> : <FoodIcon label={r.place.categoryLabel} />}</span>
                   <div className="row-body">

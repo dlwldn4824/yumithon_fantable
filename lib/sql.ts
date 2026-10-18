@@ -117,6 +117,8 @@ function driver() {
   if (!g.__driver || g.__driverSchema !== SCHEMA) {
     g.__driverSchema = SCHEMA;
     g.__driver = (async () => {
+      // Serverless hosts have no writable disk for the SQLite file: require Postgres there.
+      if (!process.env.DATABASE_URL && process.env.VERCEL) throw new Error("DATABASE_URL is not set (connect Neon Postgres in Vercel Storage)");
       const d = process.env.DATABASE_URL ? await postgres(process.env.DATABASE_URL) : await sqlite();
       await seedIfEmpty(d);
       return d;
